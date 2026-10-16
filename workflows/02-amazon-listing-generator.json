@@ -1,0 +1,269 @@
+{
+  "name": "02 · Product Brief → AI Amazon Listing → QA Checks → Sheets + Slack",
+  "nodes": [
+    {
+      "id": "product-brief-form",
+      "name": "Product Brief Form",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "formTitle": "Amazon Listing Brief",
+        "formDescription": "Fill in the product details. A draft listing will be posted to #listings and saved to the Listings sheet.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Product Name",
+              "fieldType": "text",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Brand",
+              "fieldType": "text",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Category",
+              "fieldType": "text",
+              "requiredField": true,
+              "placeholder": "e.g. Kitchen & Dining"
+            },
+            {
+              "fieldLabel": "Key Features & Specs",
+              "fieldType": "textarea",
+              "requiredField": true,
+              "placeholder": "Materials, size, what is included, what makes it different..."
+            },
+            {
+              "fieldLabel": "Target Customer",
+              "fieldType": "text"
+            },
+            {
+              "fieldLabel": "Main Keywords",
+              "fieldType": "text",
+              "placeholder": "comma separated"
+            },
+            {
+              "fieldLabel": "Tone",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Professional"
+                  },
+                  {
+                    "option": "Friendly"
+                  },
+                  {
+                    "option": "Premium"
+                  },
+                  {
+                    "option": "Playful"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "options": {
+          "path": "listing-brief",
+          "appendAttribution": false
+        }
+      },
+      "webhookId": "9b0e7d4c-2f3a-4e8b-8c61-5a4d3e2f1b22"
+    },
+    {
+      "id": "build-listing-prompt",
+      "name": "Build Listing Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Builds the OpenAI request that drafts Amazon listing copy from a product brief.\nconst brief = $input.first().json;\nconst MODEL = 'gpt-4.1-mini';\n\nconst system = `You are an expert Amazon listing copywriter for US marketplace brands.\nWrite listing copy that follows Amazon style rules:\n- Title: max 200 characters, starts with the brand name, no ALL CAPS, no promotional words.\n- 5 bullet points: each starts with a short benefit in capitals followed by a colon, max 250 characters each.\n- Description: 1000-1800 characters, plain text, short paragraphs.\n- Backend search terms: space-separated, no commas, no brand names, no words already in the title, max 249 bytes.\n- Never use: \"best\", \"#1\", \"guarantee\", \"free shipping\", \"sale\", \"discount\", medical or cure claims, unverified eco claims.\nReturn ONLY a JSON object with keys: title (string), bullets (array of 5 strings), description (string), search_terms (string).`;\n\nconst user = [\n  `Product name: ${brief['Product Name']}`,\n  `Brand: ${brief['Brand']}`,\n  `Category: ${brief['Category']}`,\n  `Key features and specs:\\n${brief['Key Features & Specs']}`,\n  `Target customer: ${brief['Target Customer'] || 'not specified'}`,\n  `Main keywords: ${brief['Main Keywords'] || 'not specified'}`,\n  `Tone: ${brief['Tone'] || 'Professional'}`,\n].join('\\n');\n\nreturn [{\n  json: {\n    requestBody: {\n      model: MODEL,\n      temperature: 0.6,\n      response_format: { type: 'json_object' },\n      messages: [\n        { role: 'system', content: system },\n        { role: 'user', content: user },\n      ],\n    },\n  },\n}];\n"
+      }
+    },
+    {
+      "id": "openai-draft-listing",
+      "name": "OpenAI · Draft Listing",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.requestBody) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "validate-listing",
+      "name": "Validate Listing",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Checks the AI draft against Amazon rules before a human sees it.\n// The AI is not trusted blindly: length limits and banned words are verified in code.\nconst brief = $('Product Brief Form').first().json;\nconst response = $input.first().json;\n\nconst LIMITS = { title: 200, bullet: 250, descriptionMin: 1000, descriptionMax: 2000, searchTermsBytes: 249 };\nconst BANNED = ['best', '#1', 'number one', 'guarantee', 'guaranteed', 'free shipping', 'sale', 'discount',\n  'cure', 'cures', 'fda approved', 'eco-friendly', 'non-toxic', '100% safe'];\n\nconst byteLength = (s) => encodeURIComponent(s).replace(/%[0-9A-F]{2}/g, 'x').length;\nconst escapeRegex = (s) => s.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');\nconst findBanned = (text) => BANNED.filter((word) =>\n  new RegExp(`(^|[^a-z0-9])${escapeRegex(word)}([^a-z0-9]|$)`, 'i').test(text));\n\nlet draft;\ntry {\n  draft = JSON.parse(response.choices[0].message.content);\n} catch (error) {\n  draft = null;\n}\n\nconst issues = [];\nif (!draft) {\n  issues.push('AI response could not be parsed — regenerate');\n  draft = { title: '', bullets: [], description: '', search_terms: '' };\n}\n\nconst title = (draft.title || '').trim();\nconst bullets = Array.isArray(draft.bullets) ? draft.bullets.map((b) => String(b).trim()) : [];\nconst description = (draft.description || '').trim();\nlet searchTerms = (draft.search_terms || '').replace(/,/g, ' ').replace(/\\s+/g, ' ').trim();\n\nif (title.length > LIMITS.title) issues.push(`Title is ${title.length} chars (max ${LIMITS.title})`);\nif (bullets.length !== 5) issues.push(`Expected 5 bullets, got ${bullets.length}`);\nbullets.forEach((b, i) => {\n  if (b.length > LIMITS.bullet) issues.push(`Bullet ${i + 1} is ${b.length} chars (max ${LIMITS.bullet})`);\n});\nif (description.length < LIMITS.descriptionMin || description.length > LIMITS.descriptionMax) {\n  issues.push(`Description is ${description.length} chars (target ${LIMITS.descriptionMin}-${LIMITS.descriptionMax})`);\n}\n\n// Search terms over the byte limit are ignored by Amazon, so trim whole words automatically.\nif (byteLength(searchTerms) > LIMITS.searchTermsBytes) {\n  const words = searchTerms.split(' ');\n  while (words.length && byteLength(words.join(' ')) > LIMITS.searchTermsBytes) words.pop();\n  searchTerms = words.join(' ');\n  issues.push('Search terms trimmed to 249 bytes');\n}\n\nconst banned = findBanned([title, ...bullets, description].join(' '));\nif (banned.length) issues.push(`Banned/risky words: ${banned.join(', ')}`);\n\nconst blocking = issues.filter((i) => i !== 'Search terms trimmed to 249 bytes');\nreturn [{\n  json: {\n    created_at: new Date().toISOString(),\n    product_name: brief['Product Name'],\n    brand: brief['Brand'],\n    category: brief['Category'],\n    title,\n    bullet_1: bullets[0] || '',\n    bullet_2: bullets[1] || '',\n    bullet_3: bullets[2] || '',\n    bullet_4: bullets[3] || '',\n    bullet_5: bullets[4] || '',\n    description,\n    search_terms: searchTerms,\n    issues: issues.join(' | '),\n    status: blocking.length ? 'Needs review' : 'Ready for approval',\n  },\n}];\n"
+      }
+    },
+    {
+      "id": "save-to-listings-sheet",
+      "name": "Save to Listings Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        960,
+        0
+      ],
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/PASTE_YOUR_SPREADSHEET_ID/edit",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Listings",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "format-slack-message",
+      "name": "Format Slack Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Formats the Slack notification so the team can review the draft without opening the sheet.\nconst l = $('Validate Listing').first().json;\nconst icon = l.status === 'Ready for approval' ? '✅' : '⚠️';\n\nconst lines = [\n  `${icon} *New listing draft: ${l.product_name}* (${l.brand}) — ${l.status}`,\n  `*Title (${l.title.length} chars):* ${l.title}`,\n  '*Bullets:*',\n  ...[l.bullet_1, l.bullet_2, l.bullet_3, l.bullet_4, l.bullet_5].filter(Boolean).map((b) => `• ${b}`),\n];\nif (l.issues) lines.push(`*Checks:* ${l.issues}`);\nlines.push('Full copy (description + search terms) is in the Listings sheet.');\n\nreturn [{ json: { slackText: lines.join('\\n') } }];\n"
+      }
+    },
+    {
+      "id": "notify-listings",
+      "name": "Notify #listings",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [
+        1440,
+        0
+      ],
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "#listings",
+          "mode": "name"
+        },
+        "text": "={{ $json.slackText }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": false
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Product Brief Form": {
+      "main": [
+        [
+          {
+            "node": "Build Listing Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Listing Prompt": {
+      "main": [
+        [
+          {
+            "node": "OpenAI · Draft Listing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI · Draft Listing": {
+      "main": [
+        [
+          {
+            "node": "Validate Listing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Listing": {
+      "main": [
+        [
+          {
+            "node": "Save to Listings Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save to Listings Sheet": {
+      "main": [
+        [
+          {
+            "node": "Format Slack Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Slack Message": {
+      "main": [
+        [
+          {
+            "node": "Notify #listings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/New_York",
+    "saveManualExecutions": true
+  }
+}

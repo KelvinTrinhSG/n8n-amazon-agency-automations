@@ -2,13 +2,93 @@
   "name": "03 · Weekly Report: Leads + Amazon Sales + Listings → Slack, Email, Dashboard",
   "nodes": [
     {
+      "id": "overview-weekly-report",
+      "name": "Overview · Weekly Report",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -500,
+        50
+      ],
+      "parameters": {
+        "content": "# 📊 03 · Weekly Report\n**Every Monday: 3 data sources → one report, delivered 3 ways.**\n\n### Replaces\nOpening several sheets every Monday, adding up numbers, comparing with last week, writing the update. **≈ 1.5 h per week.**\n\n### What's in the report\n- Revenue & units, **week-over-week %**\n- Top 5 products, ⚠️ any product **down 20%+**\n- New leads by source, 🔥 hot leads to follow up\n- Listings drafted / needing review\n\n### Setup\n- 🔑 **Google Sheets** → the 3 *Read* nodes + *Append to Dashboard Sheet*\n- 🔑 **Slack** → *Post to #reports*\n- 🔑 **SMTP** → *Email Report*\n\n### Notes\n- In production, the **Sales** tab is fed by Amazon SP-API or a Seller Central export\n- Empty tabs don't break the run (*Always Output Data*)",
+        "color": 1,
+        "width": 460,
+        "height": 780
+      }
+    },
+    {
+      "id": "stage-1-1-schedule",
+      "name": "Stage 1 · ① Schedule",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        50
+      ],
+      "parameters": {
+        "content": "## ① Schedule\nMondays 8:00 ET.",
+        "color": 4,
+        "width": 240,
+        "height": 780
+      }
+    },
+    {
+      "id": "stage-2-2-collect-data",
+      "name": "Stage 2 · ② Collect data",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        280,
+        50
+      ],
+      "parameters": {
+        "content": "## ② Collect data\nRead the 3 sources. Sales and Listings run once (*Execute Once*).",
+        "color": 6,
+        "width": 720,
+        "height": 780
+      }
+    },
+    {
+      "id": "stage-3-3-analyze",
+      "name": "Stage 3 · ③ Analyze",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1040,
+        50
+      ],
+      "parameters": {
+        "content": "## ③ Analyze\nLast 7 days vs the 7 before.",
+        "color": 2,
+        "width": 240,
+        "height": 780
+      }
+    },
+    {
+      "id": "stage-4-4-deliver",
+      "name": "Stage 4 · ④ Deliver",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1320,
+        50
+      ],
+      "parameters": {
+        "content": "## ④ Deliver\nSlack · Email · Dashboard",
+        "color": 5,
+        "width": 240,
+        "height": 780
+      }
+    },
+    {
       "id": "every-monday-8-00",
       "name": "Every Monday 8:00",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
       "position": [
-        0,
-        0
+        70,
+        400
       ],
       "parameters": {
         "rule": {
@@ -19,7 +99,9 @@
             }
           ]
         }
-      }
+      },
+      "notes": "Cron 0 8 * * 1 · America/New_York",
+      "notesInFlow": true
     },
     {
       "id": "read-leads",
@@ -27,8 +109,8 @@
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.5,
       "position": [
-        240,
-        0
+        350,
+        400
       ],
       "parameters": {
         "documentId": {
@@ -43,7 +125,9 @@
         },
         "options": {}
       },
-      "alwaysOutputData": true
+      "alwaysOutputData": true,
+      "notes": "Source 1 · CRM leads",
+      "notesInFlow": true
     },
     {
       "id": "read-sales",
@@ -51,8 +135,8 @@
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.5,
       "position": [
-        480,
-        0
+        590,
+        400
       ],
       "parameters": {
         "documentId": {
@@ -68,7 +152,9 @@
         "options": {}
       },
       "alwaysOutputData": true,
-      "executeOnce": true
+      "executeOnce": true,
+      "notes": "Source 2 · Amazon sales",
+      "notesInFlow": true
     },
     {
       "id": "read-listings",
@@ -76,8 +162,8 @@
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.5,
       "position": [
-        720,
-        0
+        830,
+        400
       ],
       "parameters": {
         "documentId": {
@@ -93,7 +179,9 @@
         "options": {}
       },
       "alwaysOutputData": true,
-      "executeOnce": true
+      "executeOnce": true,
+      "notes": "Source 3 · listing drafts",
+      "notesInFlow": true
     },
     {
       "id": "build-weekly-kpis",
@@ -101,12 +189,14 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        960,
-        0
+        1110,
+        400
       ],
       "parameters": {
         "jsCode": "// Combines leads, Amazon sales and listing activity into one weekly KPI summary.\n// Compares the last 7 days with the 7 days before (week-over-week).\nconst DAY = 24 * 60 * 60 * 1000;\nconst rows = (nodeName) => $(nodeName).all().map((i) => i.json).filter((r) => Object.keys(r).length);\nconst toDate = (v) => { const d = new Date(v); return Number.isNaN(d.getTime()) ? null : d; };\nconst num = (v) => Number(String(v ?? '').replace(/[$,]/g, '')) || 0;\nconst fmtMoney = (v) => `$${v.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;\nconst fmtDate = (d) => d.toISOString().slice(0, 10);\nconst pctChange = (cur, prev) => (prev ? Math.round(((cur - prev) / prev) * 1000) / 10 : null);\nconst fmtPct = (p) => (p === null ? 'n/a' : `${p > 0 ? '▲' : p < 0 ? '▼' : '•'} ${Math.abs(p)}%`);\n\nconst leads = rows('Read Leads');\nconst sales = rows('Read Sales');\nconst listings = rows('Read Listings');\n\n// Reporting window = the 7 full days before today. With demo data older than a week, anchor to the latest sales date.\nlet end = new Date(new Date().toISOString().slice(0, 10));\nconst latestSale = sales.map((r) => toDate(r.date)).filter(Boolean).sort((a, b) => b - a)[0];\nconst isDemoData = Boolean(latestSale && end - latestSale > 7 * DAY);\nif (isDemoData) end = new Date(latestSale.getTime() + DAY);\nconst start = new Date(end - 7 * DAY);\nconst prevStart = new Date(end - 14 * DAY);\n\nconst inWindow = (value, from, to) => { const d = toDate(value); return d && d >= from && d < to; };\nconst thisWeek = (list, field) => list.filter((r) => inWindow(r[field], start, end));\nconst lastWeek = (list, field) => list.filter((r) => inWindow(r[field], prevStart, start));\n\n// Leads\nconst leadsNow = thisWeek(leads, 'created_at');\nconst leadsPrev = lastWeek(leads, 'created_at');\nconst hotLeads = leadsNow.filter((l) => num(l.lead_score) >= 7);\nconst leadsBySource = leadsNow.reduce((acc, l) => { acc[l.source || 'Unknown'] = (acc[l.source || 'Unknown'] || 0) + 1; return acc; }, {});\n\n// Sales\nconst salesNow = thisWeek(sales, 'date');\nconst salesPrev = lastWeek(sales, 'date');\nconst revenueNow = salesNow.reduce((s, r) => s + num(r.revenue), 0);\nconst revenuePrev = salesPrev.reduce((s, r) => s + num(r.revenue), 0);\nconst unitsNow = salesNow.reduce((s, r) => s + num(r.units), 0);\nconst unitsPrev = salesPrev.reduce((s, r) => s + num(r.units), 0);\n\nconst byProduct = {};\nfor (const r of salesNow) {\n  const key = r.asin || r.product;\n  byProduct[key] ??= { asin: r.asin, product: r.product, revenue: 0, units: 0, prevRevenue: 0 };\n  byProduct[key].revenue += num(r.revenue);\n  byProduct[key].units += num(r.units);\n}\nfor (const r of salesPrev) {\n  const key = r.asin || r.product;\n  if (byProduct[key]) byProduct[key].prevRevenue += num(r.revenue);\n}\nconst topProducts = Object.values(byProduct).sort((a, b) => b.revenue - a.revenue).slice(0, 5);\nconst decliners = Object.values(byProduct).filter((p) => p.prevRevenue && pctChange(p.revenue, p.prevRevenue) <= -20);\n\n// Listings\nconst listingsNow = thisWeek(listings, 'created_at');\nconst listingsNeedReview = listingsNow.filter((l) => l.status === 'Needs review');\n\nconst kpi = {\n  week_start: fmtDate(start),\n  week_end: fmtDate(new Date(end - DAY)),\n  new_leads: leadsNow.length,\n  new_leads_wow_pct: pctChange(leadsNow.length, leadsPrev.length) ?? '',\n  hot_leads: hotLeads.length,\n  revenue: Math.round(revenueNow * 100) / 100,\n  revenue_wow_pct: pctChange(revenueNow, revenuePrev) ?? '',\n  units: unitsNow,\n  units_wow_pct: pctChange(unitsNow, unitsPrev) ?? '',\n  listings_generated: listingsNow.length,\n  listings_need_review: listingsNeedReview.length,\n  generated_at: new Date().toISOString(),\n};\n\nconst period = `${kpi.week_start} → ${kpi.week_end}`;\nconst demoNote = isDemoData ? ' (demo data)' : '';\n\nconst slackText = [\n  `📊 *Weekly Report ${period}*${demoNote}`,\n  `*Revenue:* ${fmtMoney(revenueNow)} (${fmtPct(kpi.revenue_wow_pct === '' ? null : kpi.revenue_wow_pct)} WoW) · *Units:* ${unitsNow} (${fmtPct(kpi.units_wow_pct === '' ? null : kpi.units_wow_pct)})`,\n  `*New leads:* ${leadsNow.length} (${fmtPct(kpi.new_leads_wow_pct === '' ? null : kpi.new_leads_wow_pct)}) · *Hot leads:* ${hotLeads.length}`,\n  `*Listings drafted:* ${listingsNow.length} · *Need review:* ${listingsNeedReview.length}`,\n  '*Top products:*',\n  ...topProducts.map((p, i) => `${i + 1}. ${p.product} (${p.asin}) — ${fmtMoney(p.revenue)}, ${p.units} units, ${fmtPct(pctChange(p.revenue, p.prevRevenue))}`),\n  ...(decliners.length ? [`⚠️ *Down 20%+ WoW:* ${decliners.map((p) => p.product).join(', ')}`] : []),\n  ...(hotLeads.length ? ['*Hot leads to follow up:*', ...hotLeads.map((l) => `• ${l.company} — ${l.name} (${l.lead_score}/10)`)] : []),\n].join('\\n');\n\nconst td = 'style=\"padding:6px 10px;border-bottom:1px solid #eee\"';\nconst card = (label, value, change) => `\n  <td style=\"padding:12px;background:#f6f8fa;border-radius:8px;text-align:center\">\n    <div style=\"color:#666;font-size:12px\">${label}</div>\n    <div style=\"font-size:22px;font-weight:bold\">${value}</div>\n    <div style=\"font-size:12px;color:${change === null ? '#666' : change >= 0 ? '#1a7f37' : '#cf222e'}\">${fmtPct(change)} WoW</div>\n  </td>`;\n\nconst html = `\n<div style=\"font-family:Arial,sans-serif;max-width:640px;color:#222\">\n  <h2 style=\"margin-bottom:4px\">📊 Weekly Report</h2>\n  <div style=\"color:#666;margin-bottom:16px\">${period}${demoNote}</div>\n  <table cellspacing=\"8\" style=\"width:100%\"><tr>\n    ${card('Revenue', fmtMoney(revenueNow), pctChange(revenueNow, revenuePrev))}\n    ${card('Units', unitsNow, pctChange(unitsNow, unitsPrev))}\n    ${card('New leads', leadsNow.length, pctChange(leadsNow.length, leadsPrev.length))}\n  </tr></table>\n  <p><b>Hot leads:</b> ${hotLeads.length} · <b>Listings drafted:</b> ${listingsNow.length} (${listingsNeedReview.length} need review)</p>\n  <h3>Top products</h3>\n  <table style=\"border-collapse:collapse;width:100%;font-size:14px\">\n    <tr style=\"background:#f6f8fa\"><th ${td} align=\"left\">Product</th><th ${td} align=\"right\">Revenue</th><th ${td} align=\"right\">Units</th><th ${td} align=\"right\">WoW</th></tr>\n    ${topProducts.map((p) => `<tr><td ${td}>${p.product}<br><span style=\"color:#888;font-size:12px\">${p.asin}</span></td><td ${td} align=\"right\">${fmtMoney(p.revenue)}</td><td ${td} align=\"right\">${p.units}</td><td ${td} align=\"right\">${fmtPct(pctChange(p.revenue, p.prevRevenue))}</td></tr>`).join('')}\n  </table>\n  ${decliners.length ? `<p style=\"color:#cf222e\">⚠️ Down 20%+ week-over-week: ${decliners.map((p) => p.product).join(', ')}</p>` : ''}\n  <h3>Leads by source</h3>\n  <p>${Object.entries(leadsBySource).map(([s, c]) => `${s}: <b>${c}</b>`).join(' · ') || 'No new leads this week'}</p>\n  ${hotLeads.length ? `<h3>Hot leads to follow up</h3><ul>${hotLeads.map((l) => `<li>${l.company} — ${l.name} (${l.lead_score}/10): ${l.summary}</li>`).join('')}</ul>` : ''}\n  <p style=\"color:#888;font-size:12px\">Generated automatically by n8n · Sources: Leads, Sales, Listings sheets</p>\n</div>`;\n\nreturn [{ json: { kpi, slackText, html, subject: `Weekly Report ${period}: ${fmtMoney(revenueNow)} revenue, ${leadsNow.length} new leads` } }];\n"
-      }
+      },
+      "notes": "Totals · WoW % · top products · alerts",
+      "notesInFlow": true
     },
     {
       "id": "post-to-reports",
@@ -114,8 +204,8 @@
       "type": "n8n-nodes-base.slack",
       "typeVersion": 2.2,
       "position": [
-        1200,
-        -200
+        1390,
+        200
       ],
       "parameters": {
         "select": "channel",
@@ -128,7 +218,9 @@
         "otherOptions": {
           "includeLinkToWorkflow": false
         }
-      }
+      },
+      "notes": "Short summary",
+      "notesInFlow": true
     },
     {
       "id": "email-report",
@@ -136,8 +228,8 @@
       "type": "n8n-nodes-base.emailSend",
       "typeVersion": 2.1,
       "position": [
-        1200,
-        0
+        1390,
+        400
       ],
       "parameters": {
         "fromEmail": "you@example.com",
@@ -146,7 +238,9 @@
         "emailFormat": "html",
         "html": "={{ $json.html }}",
         "options": {}
-      }
+      },
+      "notes": "HTML report with KPI cards",
+      "notesInFlow": true
     },
     {
       "id": "append-to-dashboard-sheet",
@@ -154,8 +248,8 @@
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.5,
       "position": [
-        1200,
-        200
+        1390,
+        600
       ],
       "parameters": {
         "operation": "append",
@@ -298,7 +392,9 @@
           ]
         },
         "options": {}
-      }
+      },
+      "notes": "One row/week → charts",
+      "notesInFlow": true
     }
   ],
   "connections": {

@@ -2,15 +2,65 @@
   "name": "04 · Error Alert → Slack (monitors all workflows)",
   "nodes": [
     {
+      "id": "overview-error-alert",
+      "name": "Overview · Error Alert",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -500,
+        250
+      ],
+      "parameters": {
+        "content": "# 🚨 04 · Error Alert\n**If any automation breaks, the team knows within seconds, not days.**\n\n### How it is attached\nWorkflows 01, 02 and 03 have this workflow set as their **Error Workflow** (*Workflow settings → Error workflow*). `deploy.mjs` links them automatically.\n\n### The alert contains\n- Workflow name\n- The node that failed\n- The error message\n- A link to the failed execution\n\n### Setup\n- 🔑 **Slack** → *Alert #automation-alerts*\n\n### Note\nError workflows fire only for **production (active)** executions, not manual test runs.",
+        "color": 1,
+        "width": 460,
+        "height": 640
+      }
+    },
+    {
+      "id": "stage-1-1-catch",
+      "name": "Stage 1 · ① Catch",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        250
+      ],
+      "parameters": {
+        "content": "## ① Catch\nError Trigger",
+        "color": 3,
+        "width": 240,
+        "height": 380
+      }
+    },
+    {
+      "id": "stage-2-2-alert",
+      "name": "Stage 2 · ② Alert",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        280,
+        250
+      ],
+      "parameters": {
+        "content": "## ② Alert\nPost to Slack",
+        "color": 5,
+        "width": 240,
+        "height": 380
+      }
+    },
+    {
       "id": "on-workflow-error",
       "name": "On Workflow Error",
       "type": "n8n-nodes-base.errorTrigger",
       "typeVersion": 1,
       "position": [
-        0,
-        0
+        70,
+        400
       ],
-      "parameters": {}
+      "parameters": {},
+      "notes": "Fires when 01–03 fail",
+      "notesInFlow": true
     },
     {
       "id": "alert-automation-alerts",
@@ -18,8 +68,8 @@
       "type": "n8n-nodes-base.slack",
       "typeVersion": 2.2,
       "position": [
-        240,
-        0
+        350,
+        400
       ],
       "parameters": {
         "select": "channel",
@@ -32,7 +82,9 @@
         "otherOptions": {
           "includeLinkToWorkflow": false
         }
-      }
+      },
+      "notes": "Workflow · node · error · link",
+      "notesInFlow": true
     }
   ],
   "connections": {
